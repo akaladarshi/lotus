@@ -35,6 +35,7 @@ type FullNodeAPI struct {
 	full.SyncAPI
 	full.EthAPI
 	full.ActorEventsAPI
+	full.ChainIndexAPI
 	full.F3API
 
 	DS          dtypes.MetadataDS

@@ -10,6 +10,7 @@ import (
 	"github.com/filecoin-project/go-address"
 	"github.com/filecoin-project/go-state-types/abi"
 
+	"github.com/filecoin-project/lotus/api"
 	"github.com/filecoin-project/lotus/chain/events"
 	"github.com/filecoin-project/lotus/chain/messagepool"
 	"github.com/filecoin-project/lotus/chain/stmgr"
@@ -17,9 +18,20 @@ import (
 	"github.com/filecoin-project/lotus/chain/types"
 	"github.com/filecoin-project/lotus/chainindex"
 	"github.com/filecoin-project/lotus/node/config"
+	"github.com/filecoin-project/lotus/node/impl/full"
 	"github.com/filecoin-project/lotus/node/modules/helpers"
 	"github.com/filecoin-project/lotus/node/repo"
 )
+
+func ChainIndexHandler(cfg config.ChainIndexerConfig) func(helpers.MetricsCtx, repo.LockedRepo, fx.Lifecycle, chainindex.Indexer) (*full.ChainIndexHandler, error) {
+	return func(mctx helpers.MetricsCtx, r repo.LockedRepo, lc fx.Lifecycle, indexer chainindex.Indexer) (*full.ChainIndexHandler, error) {
+		if cfg.DisableIndexer {
+			return nil, nil
+		}
+
+		return full.NewChainIndexHandler(indexer), nil
+	}
+}
 
 func ChainIndexer(cfg config.ChainIndexerConfig) func(lc fx.Lifecycle, mctx helpers.MetricsCtx, cs *store.ChainStore, r repo.LockedRepo) (chainindex.Indexer, error) {
 	return func(lc fx.Lifecycle, mctx helpers.MetricsCtx, cs *store.ChainStore, r repo.LockedRepo) (chainindex.Indexer, error) {
@@ -93,7 +105,7 @@ func InitChainIndexer(lc fx.Lifecycle, mctx helpers.MetricsCtx, indexer chainind
 			if err != nil {
 				return err
 			}
-			go chainindex.WaitForMpoolUpdates(ctx, ch, indexer)
+			go WaitForMpoolUpdates(ctx, ch, indexer)
 
 			if err := indexer.Start(); err != nil {
 				return err
@@ -102,4 +114,24 @@ func InitChainIndexer(lc fx.Lifecycle, mctx helpers.MetricsCtx, indexer chainind
 			return nil
 		},
 	})
+}
+
+func WaitForMpoolUpdates(ctx context.Context, ch <-chan api.MpoolUpdate, indexer chainindex.Indexer) {
+	for ctx.Err() == nil {
+		select {
+		case <-ctx.Done():
+			return
+		case u := <-ch:
+			if u.Type != api.MpoolAdd {
+				continue
+			}
+			if u.Message == nil {
+				continue
+			}
+			err := indexer.IndexSignedMessage(ctx, u.Message)
+			if err != nil {
+				log.Errorw("failed to index signed Mpool message", "error", err)
+			}
+		}
+	}
 }

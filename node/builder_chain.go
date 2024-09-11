@@ -275,6 +275,10 @@ func ConfigFullNode(c interface{}) Option {
 			If(!cfg.Events.EnableActorEventsAPI,
 				Override(new(full.ActorEventAPI), &full.ActorEventDummy{}),
 			),
+
+			If(!cfg.ChainIndexer.DisableIndexer,
+				Override(new(full.ChainIndexerAPI), modules.ChainIndexHandler(cfg.ChainIndexer)),
+			),
 		),
 
 		// enable fault reporter when configured by the user

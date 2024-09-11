@@ -22,7 +22,7 @@ const (
 
 	stmtUpdateEventsToRevertedFromHeight = "UPDATE event SET reverted = 1 WHERE message_id IN (SELECT message_id FROM tipset_message WHERE height >= ?)"
 
-	stmtIsTipsetMessageNonEmpty = "SELECT EXISTS(SELECT 1 FROM tipset_message LIMIT 1)"
+	stmtIsIndexEmpty = "SELECT NOT EXISTS(SELECT 1 FROM tipset_message LIMIT 1)"
 
 	stmtGetMinNonRevertedHeight = `SELECT MIN(height) FROM tipset_message WHERE reverted = 0`
 
@@ -38,8 +38,24 @@ const (
 
 	stmtGetMsgIdForMsgCidAndTipset = `SELECT message_id FROM tipset_message WHERE tipset_key_cid = ? AND message_cid = ?AND reverted = 0`
 
-	stmtInsertEvent      = "INSERT INTO event (message_id, event_index, emitter_addr, reverted) VALUES (?, ?, ?, ?)"
+	stmtInsertEvent      = "INSERT INTO event (message_id, event_index, emitter_addr, reverted) VALUES (?, ?, ?, ?) ON CONFLICT (message_id, event_index) DO UPDATE SET reverted = 0"
 	stmtInsertEventEntry = "INSERT INTO event_entry (event_id, indexed, flags, key, codec, value) VALUES (?, ?, ?, ?, ?, ?)"
+
+	stmtHasNullRoundAtHeight = `SELECT NOT EXISTS(SELECT 1 FROM tipset_message WHERE height = ?)`
+
+	stmtGetMaxNonRevertedHeight = `SELECT MAX(height) FROM tipset_message WHERE reverted = 0`
+
+	stmtCountTipsetsAtHeight = `SELECT
+		COUNT(CASE WHEN reverted = 1 THEN 1 END) AS reverted_count,
+		COUNT(CASE WHEN reverted = 0 THEN 1 END) AS non_reverted_count
+	FROM (
+		SELECT tipset_key_cid, MAX(reverted) AS reverted
+		FROM tipset_message
+		WHERE height = ?
+		GROUP BY tipset_key_cid
+	) AS unique_tipsets`
+
+	stmtGetNonRevertedTipsetAtHeight = `SELECT tipset_key_cid FROM tipset_message WHERE height = ? AND reverted = 0`
 )
 
 var ddls = []string{

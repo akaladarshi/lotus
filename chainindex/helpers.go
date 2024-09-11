@@ -7,7 +7,6 @@ import (
 
 	"golang.org/x/xerrors"
 
-	"github.com/filecoin-project/lotus/api"
 	"github.com/filecoin-project/lotus/chain/types"
 )
 
@@ -30,6 +29,8 @@ func PopulateFromSnapshot(ctx context.Context, path string, cs ChainStore) error
 			log.Errorf("failed to close sqlite indexer: %s", closeErr)
 		}
 	}()
+	si.writerLk.Lock()
+	defer si.writerLk.Unlock()
 
 	totalIndexed := 0
 
@@ -59,26 +60,6 @@ func PopulateFromSnapshot(ctx context.Context, path string, cs ChainStore) error
 
 	log.Infof("Successfully populated chainindex from snapshot with %d tipsets", totalIndexed)
 	return nil
-}
-
-func WaitForMpoolUpdates(ctx context.Context, ch <-chan api.MpoolUpdate, indexer Indexer) {
-	for ctx.Err() == nil {
-		select {
-		case <-ctx.Done():
-			return
-		case u := <-ch:
-			if u.Type != api.MpoolAdd {
-				continue
-			}
-			if u.Message == nil {
-				continue
-			}
-			err := indexer.IndexSignedMessage(ctx, u.Message)
-			if err != nil {
-				log.Errorw("failed to index signed Mpool message", "error", err)
-			}
-		}
-	}
 }
 
 // revert function for observer

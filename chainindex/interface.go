@@ -66,6 +66,8 @@ type Indexer interface {
 
 	GetEventsForFilter(ctx context.Context, f *EventFilter, excludeReverted bool) ([]*CollectedEvent, error)
 
+	ChainValidateIndex(ctx context.Context, epoch abi.ChainEpoch, backfill bool) (*types.IndexValidation, error)
+
 	Close() error
 }
 
