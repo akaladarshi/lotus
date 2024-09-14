@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"math"
 	"path"
@@ -51,6 +52,7 @@ var indexesCmd = &cli.Command{
 		withCategory("txhash", backfillTxHashCmd),
 		withCategory("events", backfillEventsCmd),
 		withCategory("events", inspectEventsCmd),
+		withCategory("chainindex_backfill", backfillChainIndexCmd),
 	},
 }
 
@@ -878,4 +880,127 @@ var backfillTxHashCmd = &cli.Command{
 
 		return nil
 	},
+}
+
+type IndexValidationJSON struct {
+	TipsetKey     string `json:"tipset_key"`
+	Height        uint64 `json:"height"`
+	TotalMessages uint64 `json:"total_messages"`
+	TotalEvents   uint64 `json:"total_events"`
+}
+
+var backfillChainIndexCmd = &cli.Command{
+	Name:  "backfill-chainindex",
+	Usage: "Backfills the chainindex for a number of epochs starting from a specified height",
+	Flags: []cli.Flag{
+		&cli.IntFlag{
+			Name:  "from",
+			Usage: "the tipset height (epoch) to start backfilling from (0 is head of chain)",
+		},
+		&cli.IntFlag{
+			Name:     "to",
+			Usage:    "the tipset height (epoch) to end backfilling at",
+			Required: true,
+		},
+		&cli.BoolFlag{
+			Name:  "output",
+			Usage: "output the backfilling results in JSON format",
+			Value: false,
+		},
+	},
+	Action: func(cctx *cli.Context) error {
+		srv, err := lcli.GetFullNodeServices(cctx)
+		if err != nil {
+			return fmt.Errorf("failed to get full node services: %w", err)
+		}
+
+		defer func() {
+			if closeErr := srv.Close(); closeErr != nil {
+				log.Errorf("error closing services: %v", closeErr)
+			}
+		}()
+
+		api := srv.FullNodeAPI()
+		ctx := lcli.ReqContext(cctx)
+
+		fromEpoch := cctx.Int("from")
+		if fromEpoch == 0 {
+			curTs, err := api.ChainHead(ctx)
+			if err != nil {
+				return err
+			}
+			fromEpoch = int(curTs.Height()) - 1
+		}
+
+		toEpoch := cctx.Int("to")
+		if toEpoch > fromEpoch {
+			return fmt.Errorf("to epoch must be less than from epoch")
+		}
+
+		output := cctx.Bool("output")
+
+		results := make([]IndexValidationJSON, 0, fromEpoch-toEpoch+1)
+
+		log.Infof("Starting backfill from epoch: %d to epoch: %d", fromEpoch, toEpoch)
+
+		// start backfilling from the fromEpoch and go back to the toEpoch
+		for epoch := fromEpoch; epoch >= toEpoch; epoch-- {
+			select {
+			case <-ctx.Done():
+				log.Warn("Backfilling process was canceled")
+				return ctx.Err()
+			default:
+			}
+
+			indexValidate, err := api.ChainValidateIndex(ctx, abi.ChainEpoch(epoch), true)
+			if err != nil {
+				return fmt.Errorf("failed to backfill index for epoch %d: %w", epoch, err)
+			}
+
+			if output {
+				results = append(results, IndexValidationJSON{
+					TipsetKey:     indexValidate.TipsetKey,
+					Height:        indexValidate.Height,
+					TotalMessages: indexValidate.TotalMessages,
+					TotalEvents:   indexValidate.TotalEvents,
+				})
+			} else {
+				logEpochResult(epoch, indexValidate)
+			}
+		}
+
+		if output {
+			if err := outputResults(results); err != nil {
+				return err
+			}
+		} else {
+			log.Infof("Backfilling chain index from epoch %d to %d completed.", fromEpoch, toEpoch)
+		}
+
+		return nil
+	},
+}
+
+// outputResults marshals the results into JSON and outputs them.
+func outputResults(results []IndexValidationJSON) error {
+	jsonData, err := json.MarshalIndent(results, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to marshal results to JSON: %w", err)
+	}
+	fmt.Println(string(jsonData))
+	return nil
+}
+
+// logEpochResult logs the result of backfilling for a single epoch.
+func logEpochResult(epoch int, indexValidate *types.IndexValidation) {
+	if indexValidate.Backfilled {
+		log.Infof("Epoch %d: Backfilled successfully. TipsetKey: %s, TotalMessages: %d, TotalEvents: %d",
+			epoch,
+			indexValidate.TipsetKey,
+			indexValidate.TotalMessages,
+			indexValidate.TotalEvents,
+		)
+	} else {
+		log.Infof("Epoch %d: Validation issues detected", epoch)
+	}
 }
