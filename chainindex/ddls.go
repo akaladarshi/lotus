@@ -56,6 +56,12 @@ const (
 	) AS unique_tipsets`
 
 	stmtGetNonRevertedTipsetAtHeight = `SELECT tipset_key_cid FROM tipset_message WHERE height = ? AND reverted = 0`
+
+	stmtGetNonRevertedTipsetMessageCount = `SELECT COUNT(*) FROM tipset_message WHERE tipset_key_cid = ? AND reverted = 0`
+
+	stmtGetNonRevertedTipsetEventCount = `SELECT COUNT(*) FROM event WHERE message_id IN (SELECT message_id FROM tipset_message WHERE tipset_key_cid = ? AND reverted = 0)`
+
+	stmtHasRevertedEvents = `SELECT EXISTS (SELECT 1 FROM event WHERE reverted = 1 AND message_id IN (SELECT message_id FROM tipset_message WHERE tipset_key_cid = ?))`
 )
 
 var ddls = []string{

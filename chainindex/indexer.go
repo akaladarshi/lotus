@@ -57,6 +57,9 @@ type SqliteIndexer struct {
 	getMaxNonRevertedHeightStmt           *sql.Stmt
 	countTipsetsAtHeightStmt              *sql.Stmt
 	getNonRevertedTipsetAtHeightStmt      *sql.Stmt
+	getNonRevertedTipsetMessageCountStmt  *sql.Stmt
+	getNonRevertedTipsetEventCountStmt    *sql.Stmt
+	hasRevertedEventsStmt                 *sql.Stmt
 
 	gcRetentionEpochs   int64
 	reconcileEmptyIndex bool
@@ -259,6 +262,21 @@ func (si *SqliteIndexer) prepareStatements() error {
 	si.getNonRevertedTipsetAtHeightStmt, err = si.db.Prepare(stmtGetNonRevertedTipsetAtHeight)
 	if err != nil {
 		return xerrors.Errorf("prepare %s: %w", "getNonRevertedTipsetAtHeightStmt", err)
+	}
+
+	si.getNonRevertedTipsetMessageCountStmt, err = si.db.Prepare(stmtGetNonRevertedTipsetMessageCount)
+	if err != nil {
+		return xerrors.Errorf("prepare %s: %w", "getTipsetMessageCountStmt", err)
+	}
+
+	si.getNonRevertedTipsetEventCountStmt, err = si.db.Prepare(stmtGetNonRevertedTipsetEventCount)
+	if err != nil {
+		return xerrors.Errorf("prepare %s: %w", "getTipsetEventCountStmt", err)
+	}
+
+	si.hasRevertedEventsStmt, err = si.db.Prepare(stmtHasRevertedEvents)
+	if err != nil {
+		return xerrors.Errorf("prepare %s: %w", "hasRevertedEventsStmt", err)
 	}
 
 	return nil
